@@ -15,36 +15,105 @@ settings or the repo's own `.pi/` folder.
 
 ## Install
 
+The four extensions are published as independent npm packages, so you can
+install all of them or only the ones you need.
+
+### Install all four
+
 ```bash
-pi install git:github.com/TianZuo555/pi-tian-extensions
+pi install npm:pi-tian-repo-model
+pi install npm:pi-tian-repo-skills
+pi install npm:pi-tian-token-speed
+pi install npm:pi-tian-image-cache
 ```
 
-Or add it to `~/.pi/agent/settings.json`:
+Restart pi or run `/reload` in an existing session after installation.
 
-```json
-{
-  "packages": ["git:github.com/TianZuo555/pi-tian-extensions"]
-}
-```
-
-To load only some of the extensions, use the filtering object form:
+The commands above add these entries to `~/.pi/agent/settings.json`:
 
 ```json
 {
   "packages": [
-    {
-      "source": "git:github.com/TianZuo555/pi-tian-extensions",
-      "extensions": ["extensions/pi-repo-skills.ts"]
-    }
+    "npm:pi-tian-repo-model",
+    "npm:pi-tian-repo-skills",
+    "npm:pi-tian-token-speed",
+    "npm:pi-tian-image-cache"
   ]
 }
 ```
 
-Try without installing:
+### Install individual extensions
+
+| Extension | Install command |
+|-----------|-----------------|
+| [pi-tian-repo-model](https://www.npmjs.com/package/pi-tian-repo-model) | `pi install npm:pi-tian-repo-model` |
+| [pi-tian-repo-skills](https://www.npmjs.com/package/pi-tian-repo-skills) | `pi install npm:pi-tian-repo-skills` |
+| [pi-tian-token-speed](https://www.npmjs.com/package/pi-tian-token-speed) | `pi install npm:pi-tian-token-speed` |
+| [pi-tian-image-cache](https://www.npmjs.com/package/pi-tian-image-cache) | `pi install npm:pi-tian-image-cache` |
+
+Try an extension temporarily without adding it to settings:
 
 ```bash
-pi -e git:github.com/TianZuo555/pi-tian-extensions
+pi -e npm:pi-tian-image-cache
 ```
+
+### Migrate from a Git install
+
+Do not load the Git package and its npm replacements together; that would load
+the same extension twice. Check your current packages first:
+
+```bash
+pi list
+```
+
+Remove any old package shown by `pi list`, then install the npm packages you
+want:
+
+```bash
+# Old aggregate package, if installed:
+pi remove git:github.com/TianZuo555/pi-tian-extensions
+
+# Old standalone token-speed package, if installed:
+pi remove git:github.com/TianZuo555/pi-token-speed
+
+pi install npm:pi-tian-repo-model
+pi install npm:pi-tian-repo-skills
+pi install npm:pi-tian-token-speed
+pi install npm:pi-tian-image-cache
+```
+
+Your existing extension preferences and caches remain in `~/.pi/`; changing the
+package source does not remove them.
+
+### Update installed extensions
+
+Update every installed Pi package and reload the current session:
+
+```bash
+pi update --extensions
+```
+
+Then restart pi or run `/reload`. To update only one package:
+
+```bash
+pi update npm:pi-tian-repo-model
+```
+
+Remove an extension independently with, for example:
+
+```bash
+pi remove npm:pi-tian-token-speed
+```
+
+### Legacy aggregate Git install
+
+The repository root remains an aggregate package for backward compatibility:
+
+```bash
+pi install git:github.com/TianZuo555/pi-tian-extensions
+```
+
+New installations should prefer the individual npm packages above.
 
 ## Extensions
 
@@ -98,15 +167,51 @@ image directly. Cache lives under `~/.pi/agent/cache/image-cache/` with a 24h TT
 
 ## Development
 
+The repository is an npm workspace with one publishable package per extension:
+
+| Workspace | npm package |
+|-----------|-------------|
+| `packages/pi-repo-model` | `pi-tian-repo-model` |
+| `packages/pi-repo-skills` | `pi-tian-repo-skills` |
+| `packages/pi-token-speed` | `pi-tian-token-speed` |
+| `packages/pi-image-cache` | `pi-tian-image-cache` |
+
+Install dependencies, typecheck every workspace, and inspect their tarballs:
+
 ```bash
 npm install
 npm run typecheck
+npm run pack:check
 ```
+
+Test a workspace directly:
+
+```bash
+pi -e ./packages/pi-repo-model
+```
+
+The files under `extensions/` are compatibility entry points for the aggregate
+Git package. Implementations live in `packages/` so each npm tarball is
+self-contained.
 
 Extensions import pi's runtime packages
 (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`,
 `@earendil-works/pi-ai`, `typebox`) as **peer dependencies** — pi provides them
 at runtime.
+
+## Publishing
+
+After logging in to npm, publish each workspace independently:
+
+```bash
+npm publish --workspace packages/pi-repo-model
+npm publish --workspace packages/pi-repo-skills
+npm publish --workspace packages/pi-token-speed
+npm publish --workspace packages/pi-image-cache
+```
+
+Version and publish only the package that changed, or bump all four together for
+a coordinated release.
 
 ## License
 

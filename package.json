@@ -1,8 +1,11 @@
 {
   "name": "pi-tian-extensions",
   "version": "0.1.0",
-  "description": "A collection of extensions for the pi coding agent: per-repository default model, per-repository skill toggles, and a pasted-image cache.",
+  "description": "A collection of extensions for the pi coding agent: per-repository defaults, skill toggles, token speed, and pasted-image caching.",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "keywords": [
     "pi",
     "pi-package",
@@ -29,7 +32,8 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pack:check": "npm pack --dry-run --workspaces"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
