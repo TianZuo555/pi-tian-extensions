@@ -24,7 +24,8 @@
     "extensions": [
       "extensions/pi-repo-model.ts",
       "extensions/pi-repo-skills.ts",
-      "extensions/image-cache.ts"
+      "extensions/image-cache.ts",
+      "extensions/token-speed.ts"
     ]
   },
   "scripts": {

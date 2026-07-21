@@ -6,6 +6,7 @@ A small collection of [pi coding agent](https://pi.dev) extensions.
 |-----------|------------------|--------------|
 | **pi-repo-model** | `/repo-model`, `/repo-model-unset`, `/repo-model-list`, tool `repo_default_model` | Remembers a default model + thinking level **per repository** and auto-applies it at session start. |
 | **pi-repo-skills** | `/skills`, `/skills-list`, `/skills-reset`, tool `repo_skills` | Enable/disable individual skills **per repository** via a checkbox TUI. Disabled skills are stripped from the system prompt. |
+| **token-speed** | `/tps` | Live tokens-per-second meter in the footer while the assistant streams, plus an end-of-message summary (avg tok/s, total tokens, time-to-first-token). |
 | **image-cache** | `Ctrl+V`, `/images`, `/image-cache-clear` | Caches pasted/clipboard images as `[Image#NNN]` placeholders and attaches them to your messages (macOS clipboard support). |
 
 Selections for the per-repo extensions are stored centrally and keyed by git
@@ -72,6 +73,22 @@ auto-load them. State lives in `~/.pi/repo-skills/config.json`.
 
 `disabled` is stored as an array of skill names or the sentinel `"ALL"` (every
 skill off, future-proof against newly installed skills).
+
+### token-speed
+
+A live generation-speed readout. While the assistant streams, the footer shows a
+smoothed tokens-per-second rate; when the message finishes it shows a summary
+with the average rate, total output tokens, and time-to-first-token.
+
+- `/tps` — cycle the display mode: `live` → `final` → `off`.
+- `/tps live` — live meter + summary.
+- `/tps final` — summary only.
+- `/tps off` — show nothing.
+
+The live rate is sampled from streamed text (a responsive chars-per-token
+estimate); the end-of-message average uses the provider's authoritative output
+token count when available. The mode is remembered in
+`~/.pi/token-speed/config.json`.
 
 ### image-cache
 
