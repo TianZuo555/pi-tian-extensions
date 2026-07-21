@@ -1,0 +1,44 @@
+{
+  "name": "pi-tian-extensions",
+  "version": "0.1.0",
+  "description": "A collection of extensions for the pi coding agent: per-repository default model, per-repository skill toggles, and a pasted-image cache.",
+  "type": "module",
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "coding-agent"
+  ],
+  "author": "Tian Zuo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TianZuo555/pi-tian-extensions.git"
+  },
+  "homepage": "https://github.com/TianZuo555/pi-tian-extensions#readme",
+  "bugs": {
+    "url": "https://github.com/TianZuo555/pi-tian-extensions/issues"
+  },
+  "pi": {
+    "extensions": [
+      "extensions/pi-repo-model.ts",
+      "extensions/pi-repo-skills.ts",
+      "extensions/image-cache.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
