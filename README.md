@@ -152,7 +152,10 @@ skill off, future-proof against newly installed skills).
 
 A live generation-speed readout. While the assistant streams, the footer shows a
 smoothed tokens-per-second rate; when the message finishes it shows a summary
-with the average rate, total output tokens, and time-to-first-token.
+with the average rate, total output tokens, and time-to-first-token. The summary
+stays on screen after the stream stops — including the model's between-stream
+thinking and tool-call gaps — so the readout is always visible instead of
+blanking out whenever generation pauses.
 
 - `/tps` — cycle the display mode: `live` → `final` → `off`.
 - `/tps live` — live meter + summary.

@@ -2,7 +2,9 @@
 //
 // Shows a live generation-speed readout in the footer while the assistant
 // streams, plus a summary (average tok/s, total tokens, time-to-first-token)
-// when the message finishes.
+// when the message finishes. The summary stays on screen after a stream stops
+// (and through the model's between-stream thinking/tool gaps) so the readout is
+// always visible rather than blanking out the moment generation pauses.
 //
 // Commands:
 //   /tps            cycle the display mode: live -> final -> off
@@ -156,8 +158,15 @@ export default function tokenSpeedExtension(pi: ExtensionAPI): void {
   const meter = new StreamMeter();
   let mode: DisplayMode = "live";
   let lastRender = 0;
+  // The most recent end-of-message summary. Kept so the footer can keep showing
+  // a readout while the assistant is between streams (thinking, running tools),
+  // instead of blanking out every time a stream stops.
+  let lastSummary = "";
 
-  const clear = (ctx: ExtensionContext) => ctx.ui.setStatus(STATUS_KEY, "");
+  const clear = (ctx: ExtensionContext) => {
+    lastSummary = "";
+    ctx.ui.setStatus(STATUS_KEY, "");
+  };
 
   const renderLive = (ctx: ExtensionContext, now: number) => {
     if (mode !== "live") return;
@@ -166,12 +175,20 @@ export default function tokenSpeedExtension(pi: ExtensionAPI): void {
     ctx.ui.setStatus(STATUS_KEY, `⚡ ${formatRate(meter.rate(now))} tok/s`);
   };
 
+  // Re-assert the last summary. Cheap and idempotent; used to keep the readout
+  // visible across events (turn boundaries, idle) so it never silently vanishes.
+  const showLastSummary = (ctx: ExtensionContext) => {
+    if (mode === "off" || !lastSummary) return;
+    ctx.ui.setStatus(STATUS_KEY, lastSummary);
+  };
+
   const renderSummary = (ctx: ExtensionContext, totalTokens: number, now: number) => {
     if (mode === "off") return;
     const parts = [`⚡ ${formatRate(meter.averageRate(totalTokens, now))} tok/s avg`, `${formatCount(totalTokens)} tok`];
     const ttft = meter.ttftMs();
     if (ttft !== undefined) parts.push(`TTFT ${formatDuration(ttft)}`);
-    ctx.ui.setStatus(STATUS_KEY, parts.join(" · "));
+    lastSummary = parts.join(" · ");
+    ctx.ui.setStatus(STATUS_KEY, lastSummary);
   };
 
   pi.on("session_start", (_event, ctx) => {
@@ -183,7 +200,10 @@ export default function tokenSpeedExtension(pi: ExtensionAPI): void {
     if (!isAssistant(event.message)) return;
     meter.begin(Date.now());
     lastRender = 0;
-    if (mode === "live") clear(ctx);
+    // Do NOT blank the footer here. Keep the previous summary visible until the
+    // first token arrives and the live meter takes over — otherwise the readout
+    // disappears during the model's pre-token thinking/tool gaps.
+    if (mode === "live") showLastSummary(ctx);
   });
 
   pi.on("message_update", (event, ctx) => {
@@ -205,8 +225,11 @@ export default function tokenSpeedExtension(pi: ExtensionAPI): void {
     renderSummary(ctx, total, now);
   });
 
-  pi.on("turn_end", () => {
+  pi.on("turn_end", (_event, ctx) => {
     if (meter.streaming) meter.end();
+    // Final event before the agent goes idle: make sure the summary is the frame
+    // the user is left looking at, so the readout always stays on screen.
+    showLastSummary(ctx);
   });
 
   pi.on("session_shutdown", () => {
