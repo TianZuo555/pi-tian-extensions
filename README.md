@@ -228,6 +228,24 @@ at runtime.
 
 ## Publishing
 
+### Automated (GitHub Actions)
+
+The [`Publish`](.github/workflows/publish.yml) workflow publishes packages to npm
+automatically. On every push to `main` that touches `packages/**`, it checks each
+workspace's version against npm and publishes only the ones whose version is not
+yet published (so bumping a single `package.json` version is all that's needed to
+release it). Packages are published with [npm provenance](https://docs.npmjs.com/generating-provenance-statements).
+
+Requirements:
+
+- Add an `NPM_TOKEN` repository secret (an npm **Automation** access token with
+  publish rights) under *Settings → Secrets and variables → Actions*.
+- The workflow can also be triggered manually via *Actions → Publish → Run
+  workflow*, with an optional **dry-run** toggle that runs `npm publish
+  --dry-run` without releasing.
+
+### Manual
+
 After logging in to npm, publish each workspace independently:
 
 ```bash

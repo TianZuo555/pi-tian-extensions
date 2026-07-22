@@ -1,0 +1,79 @@
+name: Publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - ".github/workflows/publish.yml"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run in dry-run mode (no actual publish)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for npm provenance
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Publish changed packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+          published_any=false
+          for dir in packages/*/; do
+            [ -f "$dir/package.json" ] || continue
+
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            private=$(node -p "require('./$dir/package.json').private === true")
+
+            if [ "$private" = "true" ]; then
+              echo "⏭  $name is private, skipping"
+              continue
+            fi
+
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "✔  $name@$version already published, skipping"
+              continue
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "🧪 [dry-run] would publish $name@$version"
+              npm publish --dry-run --provenance --access public --workspace "$name"
+            else
+              echo "🚀 Publishing $name@$version"
+              npm publish --provenance --access public --workspace "$name"
+              published_any=true
+            fi
+          done
+
+          if [ "$published_any" = "false" ] && [ "$DRY_RUN" != "true" ]; then
+            echo "No new package versions to publish."
+          fi
