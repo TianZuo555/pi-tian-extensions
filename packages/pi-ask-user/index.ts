@@ -51,6 +51,18 @@ const AskUserParams = Type.Object({
 
 export type AskUserInput = Static<typeof AskUserParams>;
 
+export const AGENT_INPUT_REQUIRED_EVENT = "agent:input_required";
+const LEGACY_HERDR_BLOCKED_EVENT = "herdr:blocked";
+
+/** Lifecycle event emitted while this tool is waiting for human input. */
+export interface AgentInputRequiredEvent {
+  version: 1;
+  id: string;
+  source: string;
+  active: boolean;
+  label: string;
+}
+
 interface AskUserDetails {
   question: string;
   options: string[];
@@ -97,7 +109,7 @@ export default function askUser(pi: ExtensionAPI): void {
     promptGuidelines: ASK_USER_PROMPT_GUIDELINES,
     parameters: AskUserParams,
 
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(toolCallId, params, signal, _onUpdate, ctx) {
       const reply = (text: string, answer: string | null = null, wasCustom = false) => ({
         content: [{ type: "text" as const, text }],
         details: {
@@ -126,61 +138,99 @@ export default function askUser(pi: ExtensionAPI): void {
       }));
       items.push({ value: OTHER_VALUE, label: OTHER_LABEL });
 
+      // Report the cause (waiting for input), not a client-specific final agent
+      // state. Consumers own state aggregation and transport; for example, a
+      // Herdr integration can map active requests to its pane's blocked state.
+      // The tool-call ID makes duplicate and concurrent lifecycles correlatable.
+      //
+      // `herdr:blocked` is emitted temporarily for compatibility with Herdr's
+      // version 6 pi integration. New consumers should use the generic channel.
+      const blockedLabel =
+        params.question.replace(/\s+/g, " ").trim().slice(0, 120) ||
+        "Waiting for user input";
+      const emitInputRequired = (active: boolean) => {
+        const payload: AgentInputRequiredEvent = {
+          version: 1,
+          id: toolCallId,
+          source: "ask_user",
+          active,
+          label: blockedLabel,
+        };
+
+        for (const eventName of [AGENT_INPUT_REQUIRED_EVENT, LEGACY_HERDR_BLOCKED_EVENT]) {
+          try {
+            pi.events.emit(eventName, { ...payload });
+          } catch {
+            // Never let best-effort signalling break the prompt or its cleanup.
+          }
+        }
+      };
+
       // --- Interactive TUI popup -------------------------------------------
       if (ctx.mode === "tui") {
-        // Loop so an empty free-form answer returns to the option list.
-        for (;;) {
-          if (signal?.aborted) {
-            return reply(buildAskUserResultMessage({ kind: "cancelled" }));
-          }
-
-          const picked = await showOptions(ctx, params.question, items, signal);
-
-          if (picked.kind === "cancel") {
-            return reply(buildAskUserResultMessage(dismissedOrCancelled()));
-          }
-
-          if (picked.kind === "other") {
-            const answer = (await ctx.ui.editor("Write your answer", ""))?.trim();
-            if (answer) {
-              return reply(buildAskUserResultMessage({ kind: "custom", answer }), answer, true);
+        emitInputRequired(true);
+        try {
+          // Loop so an empty free-form answer returns to the option list.
+          for (;;) {
+            if (signal?.aborted) {
+              return reply(buildAskUserResultMessage({ kind: "cancelled" }));
             }
-            continue; // back to the options
-          }
 
-          return reply(
-            buildAskUserResultMessage({
-              kind: "selected",
-              answer: picked.label,
-              index: picked.index,
-            }),
-            picked.label,
-          );
+            const picked = await showOptions(ctx, params.question, items, signal);
+
+            if (picked.kind === "cancel") {
+              return reply(buildAskUserResultMessage(dismissedOrCancelled()));
+            }
+
+            if (picked.kind === "other") {
+              const answer = (await ctx.ui.editor("Write your answer", ""))?.trim();
+              if (answer) {
+                return reply(buildAskUserResultMessage({ kind: "custom", answer }), answer, true);
+              }
+              continue; // back to the options
+            }
+
+            return reply(
+              buildAskUserResultMessage({
+                kind: "selected",
+                answer: picked.label,
+                index: picked.index,
+              }),
+              picked.label,
+            );
+          }
+        } finally {
+          emitInputRequired(false);
         }
       }
 
       // --- RPC fallback: built-in select/input dialogs ---------------------
       if (ctx.hasUI) {
-        const labels = items.map((i) =>
-          i.description ? `${i.label} — ${i.description}` : i.label,
-        );
-        const choice = await ctx.ui.select(params.question, labels);
-        if (choice === undefined) {
-          return reply(buildAskUserResultMessage(dismissedOrCancelled()));
-        }
-        const idx = labels.indexOf(choice);
-        if (idx === items.length - 1) {
-          const answer = (await ctx.ui.input(params.question))?.trim();
-          if (answer) {
-            return reply(buildAskUserResultMessage({ kind: "custom", answer }), answer, true);
+        emitInputRequired(true);
+        try {
+          const labels = items.map((i) =>
+            i.description ? `${i.label} — ${i.description}` : i.label,
+          );
+          const choice = await ctx.ui.select(params.question, labels);
+          if (choice === undefined) {
+            return reply(buildAskUserResultMessage(dismissedOrCancelled()));
           }
-          return reply(buildAskUserResultMessage({ kind: "dismissed" }));
+          const idx = labels.indexOf(choice);
+          if (idx === items.length - 1) {
+            const answer = (await ctx.ui.input(params.question))?.trim();
+            if (answer) {
+              return reply(buildAskUserResultMessage({ kind: "custom", answer }), answer, true);
+            }
+            return reply(buildAskUserResultMessage({ kind: "dismissed" }));
+          }
+          const opt = params.options[idx];
+          return reply(
+            buildAskUserResultMessage({ kind: "selected", answer: opt.label, index: idx + 1 }),
+            opt.label,
+          );
+        } finally {
+          emitInputRequired(false);
         }
-        const opt = params.options[idx];
-        return reply(
-          buildAskUserResultMessage({ kind: "selected", answer: opt.label, index: idx + 1 }),
-          opt.label,
-        );
       }
 
       // --- No UI (print/json) ----------------------------------------------
