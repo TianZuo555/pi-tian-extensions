@@ -34,6 +34,9 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           cache: npm
 
+      - name: Upgrade npm for trusted publishing
+        run: npm install --global npm@^11.5.1
+
       - name: Install dependencies
         run: npm ci
 
@@ -42,7 +45,6 @@ jobs:
 
       - name: Publish changed packages
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
         run: |
           set -euo pipefail
