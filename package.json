@@ -29,7 +29,8 @@
       "extensions/pi-repo-skills.ts",
       "extensions/image-cache.ts",
       "extensions/token-speed.ts",
-      "extensions/ask-user.ts"
+      "extensions/ask-user.ts",
+      "extensions/usage.ts"
     ]
   },
   "scripts": {

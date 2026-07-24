@@ -9,6 +9,7 @@ A small collection of [pi coding agent](https://pi.dev) extensions.
 | **token-speed** | `/tps` | Live tokens-per-second meter in the footer while the assistant streams, plus an end-of-message summary (avg tok/s, total tokens, time-to-first-token). |
 | **image-cache** | `Ctrl+V`, `/images`, `/image-cache-clear` | Caches pasted/clipboard images as `[Image#NNN]` placeholders and attaches them to your messages (macOS clipboard support). |
 | **ask-user** | tool `ask_user` | Lets the model ask you a single multiple-choice question (2–5 options plus a free-form "write my own answer") in a popup. |
+| **usage** | `/usage` | Show **OpenAI Codex** and **GitHub Copilot** account usage in a menu, plus a compact footer meter for the active provider. |
 
 Selections for the per-repo extensions are stored centrally and keyed by git
 root, so each repository keeps its own preferences without touching global
@@ -27,6 +28,7 @@ pi install npm:pi-tian-repo-skills
 pi install npm:pi-tian-token-speed
 pi install npm:pi-tian-image-cache
 pi install npm:pi-tian-ask-user
+pi install npm:pi-tian-usage
 ```
 
 Restart pi or run `/reload` in an existing session after installation.
@@ -40,7 +42,8 @@ The commands above add these entries to `~/.pi/agent/settings.json`:
     "npm:pi-tian-repo-skills",
     "npm:pi-tian-token-speed",
     "npm:pi-tian-image-cache",
-    "npm:pi-tian-ask-user"
+    "npm:pi-tian-ask-user",
+    "npm:pi-tian-usage"
   ]
 }
 ```
@@ -54,6 +57,7 @@ The commands above add these entries to `~/.pi/agent/settings.json`:
 | [pi-tian-token-speed](https://www.npmjs.com/package/pi-tian-token-speed) | `pi install npm:pi-tian-token-speed` |
 | [pi-tian-image-cache](https://www.npmjs.com/package/pi-tian-image-cache) | `pi install npm:pi-tian-image-cache` |
 | [pi-tian-ask-user](https://www.npmjs.com/package/pi-tian-ask-user) | `pi install npm:pi-tian-ask-user` |
+| [pi-tian-usage](https://www.npmjs.com/package/pi-tian-usage) | `pi install npm:pi-tian-usage` |
 
 Try an extension temporarily without adding it to settings:
 
@@ -85,6 +89,7 @@ pi install npm:pi-tian-repo-skills
 pi install npm:pi-tian-token-speed
 pi install npm:pi-tian-image-cache
 pi install npm:pi-tian-ask-user
+pi install npm:pi-tian-usage
 ```
 
 Your existing extension preferences and caches remain in `~/.pi/`; changing the
@@ -191,7 +196,23 @@ The tool result tells the model exactly what happened — which option (by numbe
 was picked, the free-form text you wrote, or that you dismissed the question —
 so it never silently assumes an answer.
 
-## Development
+### usage
+
+Shows current-account usage for **OpenAI Codex** and **GitHub Copilot** without
+leaving pi.
+
+- `/usage` — open a menu listing both providers' usage (limits, remaining
+  percentage, absolute quota, and reset time). Pick **Refresh** to re-query or
+  **Close** to dismiss. In non-interactive modes it prints a one-line summary.
+- When the active model belongs to a supported provider, a compact meter such
+  as `codex 60% wk` or `copilot 49% premium` is published to the footer and
+  refreshed at most every five minutes (results are cached).
+
+Credentials come from the same store pi writes (`~/.pi/agent/auth.json`): Codex
+uses the ChatGPT OAuth access token; Copilot uses the stored GitHub OAuth token
+(with `GH_TOKEN` / `GITHUB_TOKEN` and `~/.config/github-copilot/apps.json` as
+fallbacks). A provider with no resolvable credential shows as **Not configured**
+— sign in with `/login` and select it.
 
 The repository is an npm workspace with one publishable package per extension:
 
@@ -202,6 +223,7 @@ The repository is an npm workspace with one publishable package per extension:
 | `packages/pi-token-speed` | `pi-tian-token-speed` |
 | `packages/pi-image-cache` | `pi-tian-image-cache` |
 | `packages/pi-ask-user` | `pi-tian-ask-user` |
+| `packages/pi-usage` | `pi-tian-usage` |
 
 Install dependencies, typecheck every workspace, and inspect their tarballs:
 
@@ -254,6 +276,7 @@ npm publish --workspace packages/pi-repo-skills
 npm publish --workspace packages/pi-token-speed
 npm publish --workspace packages/pi-image-cache
 npm publish --workspace packages/pi-ask-user
+npm publish --workspace packages/pi-usage
 ```
 
 Version and publish only the package that changed, or bump them all together for

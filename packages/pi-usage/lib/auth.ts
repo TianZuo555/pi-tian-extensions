@@ -1,0 +1,135 @@
+// Credential resolution for the usage extension.
+//
+// Codex usage (https://chatgpt.com/backend-api/wham/usage) is authenticated with
+// the ChatGPT OAuth *access* token. GitHub Copilot usage
+// (https://api.github.com/copilot_internal/user) is authenticated with the GitHub
+// OAuth token — the `refresh` credential pi stores for github-copilot — NOT the
+// short-lived Copilot chat token that pi hands to model requests.
+//
+// Pi persists both under ~/.pi/agent/auth.json. We read that file directly (it is
+// the same store pi itself writes) so `/usage` reports every configured provider
+// regardless of which provider the active model belongs to. For Codex we fall
+// back to pi's registry only to refresh an expired access token; for Copilot we
+// fall back to standard GitHub token environment variables and the VS Code
+// Copilot credential file.
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+const AUTH_FILE = path.join(os.homedir(), ".pi", "agent", "auth.json");
+const COPILOT_APPS_FILE = path.join(os.homedir(), ".config", "github-copilot", "apps.json");
+const COPILOT_TOKEN_ENV = ["GH_TOKEN", "GITHUB_TOKEN", "GITHUB_COPILOT_TOKEN", "COPILOT_GITHUB_TOKEN"];
+
+interface PiAuthEntry {
+  type?: string;
+  access?: string;
+  refresh?: string;
+  key?: string;
+  expires?: number;
+}
+
+/** A resolved bearer credential plus where it came from (for diagnostics). */
+export interface ResolvedToken {
+  token: string;
+  source: string;
+}
+
+function readPiAuth(): Record<string, PiAuthEntry> {
+  try {
+    return JSON.parse(fs.readFileSync(AUTH_FILE, "utf-8")) as Record<string, PiAuthEntry>;
+  } catch {
+    return {};
+  }
+}
+
+// Ask pi's model registry to resolve a fresh bearer token for a provider. Used
+// only as a fallback when the stored Codex access token has expired, so pi can
+// transparently refresh and persist it.
+async function bearerFromRegistry(
+  ctx: ExtensionContext,
+  providerId: string,
+): Promise<string | undefined> {
+  try {
+    const registry = ctx.modelRegistry;
+    const models = [...registry.getAvailable(), ...registry.getAll()];
+    const model = models.find((candidate) => candidate.provider === providerId);
+    if (!model) return undefined;
+    const result = await withTimeout(registry.getApiKeyAndHeaders(model), 15_000);
+    if (!result?.ok) return undefined;
+    const authorization =
+      result.headers?.Authorization ?? result.headers?.authorization ?? undefined;
+    if (authorization) return stripBearer(authorization);
+    return result.apiKey || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function stripBearer(value: string): string {
+  const match = /^bearer\s+(.+)$/i.exec(value.trim());
+  return match ? match[1] : value.trim();
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Resolve the ChatGPT access token used for Codex usage.
+ *
+ * Reads the token pi persisted in auth.json directly so `/usage` works for Codex
+ * regardless of which provider the active model belongs to. Only when the stored
+ * access token is missing or expired do we ask pi's registry to refresh it (which
+ * also persists the refreshed credential).
+ */
+export async function resolveCodexToken(ctx: ExtensionContext): Promise<ResolvedToken | undefined> {
+  const entry = readPiAuth()["openai-codex"];
+  const now = Date.now();
+
+  if (entry?.access && (entry.expires === undefined || entry.expires > now + 60_000)) {
+    return { token: entry.access, source: "~/.pi/agent/auth.json" };
+  }
+
+  const refreshed = await bearerFromRegistry(ctx, "openai-codex");
+  if (refreshed) return { token: refreshed, source: "pi runtime auth" };
+
+  if (entry?.access) {
+    return { token: entry.access, source: "~/.pi/agent/auth.json (possibly expired)" };
+  }
+  return undefined;
+}
+
+/** Resolve the GitHub OAuth token used for Copilot usage. */
+export function resolveCopilotToken(): ResolvedToken | undefined {
+  const refresh = readPiAuth()["github-copilot"]?.refresh;
+  if (refresh) return { token: refresh, source: "~/.pi/agent/auth.json" };
+
+  for (const name of COPILOT_TOKEN_ENV) {
+    const value = process.env[name];
+    if (value) return { token: value, source: `$${name}` };
+  }
+
+  try {
+    const apps = JSON.parse(fs.readFileSync(COPILOT_APPS_FILE, "utf-8")) as Record<string, unknown>;
+    for (const entry of Object.values(apps)) {
+      const token = (entry as { oauth_token?: unknown })?.oauth_token;
+      if (typeof token === "string" && token) {
+        return { token, source: "~/.config/github-copilot/apps.json" };
+      }
+    }
+  } catch {
+    // No VS Code Copilot credentials available.
+  }
+  return undefined;
+}

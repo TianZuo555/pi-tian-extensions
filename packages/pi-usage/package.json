@@ -1,0 +1,42 @@
+{
+  "name": "pi-tian-usage",
+  "version": "0.1.1",
+  "description": "Show OpenAI Codex and GitHub Copilot account usage in the pi coding agent.",
+  "type": "module",
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "usage",
+    "quota",
+    "codex",
+    "copilot"
+  ],
+  "author": "Tian Zuo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TianZuo555/pi-tian-extensions.git",
+    "directory": "packages/pi-usage"
+  },
+  "homepage": "https://github.com/TianZuo555/pi-tian-extensions#usage",
+  "bugs": {
+    "url": "https://github.com/TianZuo555/pi-tian-extensions/issues"
+  },
+  "files": [
+    "index.ts",
+    "lib"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
