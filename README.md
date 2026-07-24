@@ -10,6 +10,7 @@ A small collection of [pi coding agent](https://pi.dev) extensions.
 | **image-cache** | `Ctrl+V`, `/images`, `/image-cache-clear` | Caches pasted/clipboard images as `[Image#NNN]` placeholders and attaches them to your messages (macOS clipboard support). |
 | **ask-user** | tool `ask_user` | Lets the model ask you a single multiple-choice question (2–5 options plus a free-form "write my own answer") in a popup. |
 | **usage** | `/usage` | Show **OpenAI Codex** and **GitHub Copilot** account usage in a menu, plus a compact footer meter for the active provider. |
+| **background-terminals** | `/ps`, tools `bg_start`, `bg_status`, `bg_list`, `bg_kill` | Start, inspect, and stop long-running background shell processes (no stdin). Notifies the model exactly once on exit; `/ps` opens a live output viewer. |
 
 Selections for the per-repo extensions are stored centrally and keyed by git
 root, so each repository keeps its own preferences without touching global
@@ -29,6 +30,7 @@ pi install npm:pi-tian-token-speed
 pi install npm:pi-tian-image-cache
 pi install npm:pi-tian-ask-user
 pi install npm:pi-tian-usage
+pi install npm:pi-tian-background-terminals
 ```
 
 Restart pi or run `/reload` in an existing session after installation.
@@ -43,7 +45,8 @@ The commands above add these entries to `~/.pi/agent/settings.json`:
     "npm:pi-tian-token-speed",
     "npm:pi-tian-image-cache",
     "npm:pi-tian-ask-user",
-    "npm:pi-tian-usage"
+    "npm:pi-tian-usage",
+    "npm:pi-tian-background-terminals"
   ]
 }
 ```
@@ -58,6 +61,7 @@ The commands above add these entries to `~/.pi/agent/settings.json`:
 | [pi-tian-image-cache](https://www.npmjs.com/package/pi-tian-image-cache) | `pi install npm:pi-tian-image-cache` |
 | [pi-tian-ask-user](https://www.npmjs.com/package/pi-tian-ask-user) | `pi install npm:pi-tian-ask-user` |
 | [pi-tian-usage](https://www.npmjs.com/package/pi-tian-usage) | `pi install npm:pi-tian-usage` |
+| [pi-tian-background-terminals](https://www.npmjs.com/package/pi-tian-background-terminals) | `pi install npm:pi-tian-background-terminals` |
 
 Try an extension temporarily without adding it to settings:
 
@@ -90,6 +94,7 @@ pi install npm:pi-tian-token-speed
 pi install npm:pi-tian-image-cache
 pi install npm:pi-tian-ask-user
 pi install npm:pi-tian-usage
+pi install npm:pi-tian-background-terminals
 ```
 
 Your existing extension preferences and caches remain in `~/.pi/`; changing the
@@ -224,6 +229,7 @@ The repository is an npm workspace with one publishable package per extension:
 | `packages/pi-image-cache` | `pi-tian-image-cache` |
 | `packages/pi-ask-user` | `pi-tian-ask-user` |
 | `packages/pi-usage` | `pi-tian-usage` |
+| `packages/pi-background-terminals` | `pi-tian-background-terminals` |
 
 Install dependencies, typecheck every workspace, and inspect their tarballs:
 
