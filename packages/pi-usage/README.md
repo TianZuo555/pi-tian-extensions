@@ -27,8 +27,8 @@ GitHub Copilot · Business
 ## Statusline
 
 When the active model provider is Codex or Copilot, the footer shows a compact
-meter such as `codex 60% wk` or `copilot 49% premium`, refreshed at most every
-five minutes (results are cached to avoid hammering the endpoints).
+Azure Blue meter such as `codex 60% wk` or `copilot 49% premium`, refreshed at
+most every five minutes (results are cached to avoid hammering the endpoints).
 
 ## How it works
 
@@ -43,6 +43,12 @@ For Copilot, if pi has no stored credential the extension falls back to the
 `GH_TOKEN` / `GITHUB_TOKEN` / `GITHUB_COPILOT_TOKEN` / `COPILOT_GITHUB_TOKEN`
 environment variables and then to the VS Code Copilot credential file
 (`~/.config/github-copilot/apps.json`).
+
+Provider requests allow up to 30 seconds per attempt and retry one transient
+network, timeout, rate-limit, or server failure. Simultaneous startup and
+`/usage` checks share the same in-flight request so they cannot race an OAuth
+refresh or duplicate a cold request. Recorded expired Codex tokens are never
+sent to the endpoint when Pi cannot refresh them.
 
 A provider that has no resolvable credential is shown as **Not configured** —
 sign in with `/login` and select that provider.

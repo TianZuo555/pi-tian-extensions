@@ -32,6 +32,8 @@ import {
 
 const STATUS_KEY = "usage";
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const AZURE_BLUE = "\x1b[38;2;0;127;255m";
+const RESET_FOREGROUND = "\x1b[39m";
 const REFRESH = "Refresh";
 const CLOSE = "Close";
 
@@ -65,6 +67,7 @@ const PROVIDERS: ProviderSpec[] = [
 
 export default function usageExtension(pi: ExtensionAPI): void {
   const cache = new Map<string, { at: number; report: ProviderReport }>();
+  const inFlight = new Map<string, Promise<ProviderState>>();
   let statusBusy = false;
 
   const safeSetStatus = (ctx: ExtensionContext, value: string | undefined) => {
@@ -85,29 +88,45 @@ export default function usageExtension(pi: ExtensionAPI): void {
     if (!force && cached && Date.now() - cached.at < CACHE_TTL_MS) {
       return { id: provider.id, name: provider.name, status: "ready", report: cached.report };
     }
+
+    // session_start and an immediate /usage command can otherwise resolve OAuth
+    // and hit the same endpoint concurrently. Share one request per provider to
+    // avoid token-refresh races and duplicate cold-start traffic.
+    const pending = inFlight.get(provider.id);
+    if (pending) return pending;
+
     // Resolve + query inside one guard so a failure for one provider can never
     // reject the sibling query (each provider is fully independent of the active
     // model / the other provider).
-    try {
-      const resolved = await provider.resolve(ctx);
-      if (!resolved) {
+    const request = (async (): Promise<ProviderState> => {
+      try {
+        const resolved = await provider.resolve(ctx);
+        if (!resolved) {
+          return {
+            id: provider.id,
+            name: provider.name,
+            status: "unconfigured",
+            message: provider.configureHint,
+          };
+        }
+        const report = await provider.query(resolved.token, signal);
+        cache.set(provider.id, { at: Date.now(), report });
+        return { id: provider.id, name: provider.name, status: "ready", report };
+      } catch (error) {
         return {
           id: provider.id,
           name: provider.name,
-          status: "unconfigured",
-          message: provider.configureHint,
+          status: "error",
+          message: errorMessage(error),
         };
       }
-      const report = await provider.query(resolved.token, signal);
-      cache.set(provider.id, { at: Date.now(), report });
-      return { id: provider.id, name: provider.name, status: "ready", report };
-    } catch (error) {
-      return {
-        id: provider.id,
-        name: provider.name,
-        status: "error",
-        message: errorMessage(error),
-      };
+    })();
+
+    inFlight.set(provider.id, request);
+    try {
+      return await request;
+    } finally {
+      if (inFlight.get(provider.id) === request) inFlight.delete(provider.id);
     }
   };
 
@@ -144,7 +163,7 @@ export default function usageExtension(pi: ExtensionAPI): void {
     try {
       const state = await queryProvider(ctx, provider, force);
       if (state.status === "ready") {
-        safeSetStatus(ctx, formatStatusline(state.report));
+        safeSetStatus(ctx, azureStatus(formatStatusline(state.report)));
       } else if (state.status === "error") {
         safeSetStatus(ctx, `${provider.statusLabel} usage error`);
       } else {
@@ -234,7 +253,9 @@ export default function usageExtension(pi: ExtensionAPI): void {
       return;
     }
     const state = states.find((candidate) => candidate.id === provider.id);
-    if (state?.status === "ready") safeSetStatus(ctx, formatStatusline(state.report));
+    if (state?.status === "ready") {
+      safeSetStatus(ctx, azureStatus(formatStatusline(state.report)));
+    }
   };
 
   pi.registerCommand("usage", {
@@ -259,8 +280,13 @@ export default function usageExtension(pi: ExtensionAPI): void {
   });
   pi.on("session_shutdown", (_event, ctx) => {
     cache.clear();
+    inFlight.clear();
     safeSetStatus(ctx, undefined);
   });
+}
+
+function azureStatus(text: string | undefined): string | undefined {
+  return text ? `${AZURE_BLUE}${text}${RESET_FOREGROUND}` : undefined;
 }
 
 function compactSummary(states: ProviderState[]): string {

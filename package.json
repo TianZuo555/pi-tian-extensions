@@ -35,6 +35,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test:usage": "node --test tests/pi-usage-providers.test.mjs",
     "pack:check": "npm pack --dry-run --workspaces"
   },
   "peerDependencies": {

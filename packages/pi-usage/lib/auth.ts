@@ -21,6 +21,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 const AUTH_FILE = path.join(os.homedir(), ".pi", "agent", "auth.json");
 const COPILOT_APPS_FILE = path.join(os.homedir(), ".config", "github-copilot", "apps.json");
 const COPILOT_TOKEN_ENV = ["GH_TOKEN", "GITHUB_TOKEN", "GITHUB_COPILOT_TOKEN", "COPILOT_GITHUB_TOKEN"];
+const AUTH_RESOLVE_TIMEOUT_MS = 30_000;
 
 interface PiAuthEntry {
   type?: string;
@@ -28,6 +29,17 @@ interface PiAuthEntry {
   refresh?: string;
   key?: string;
   expires?: number;
+}
+
+interface ProviderAuthResult {
+  auth: {
+    apiKey?: string;
+    headers?: Record<string, string | null>;
+  };
+}
+
+interface ProviderAuthRegistry {
+  getProviderAuth?: (providerId: string) => Promise<ProviderAuthResult | undefined>;
 }
 
 /** A resolved bearer credential plus where it came from (for diagnostics). */
@@ -52,11 +64,30 @@ async function bearerFromRegistry(
   providerId: string,
 ): Promise<string | undefined> {
   try {
-    const registry = ctx.modelRegistry;
+    const registry = ctx.modelRegistry as typeof ctx.modelRegistry & ProviderAuthRegistry;
+
+    // Newer Pi versions expose provider-scoped auth, which avoids depending on
+    // the model catalog being ready during session_start.
+    if (registry.getProviderAuth) {
+      const result = await withTimeout(
+        registry.getProviderAuth(providerId),
+        AUTH_RESOLVE_TIMEOUT_MS,
+      );
+      if (!result) return undefined;
+      const authorization =
+        result.auth.headers?.Authorization ?? result.auth.headers?.authorization ?? undefined;
+      if (authorization) return stripBearer(authorization);
+      return result.auth.apiKey || undefined;
+    }
+
+    // Compatibility fallback for older Pi releases.
     const models = [...registry.getAvailable(), ...registry.getAll()];
     const model = models.find((candidate) => candidate.provider === providerId);
     if (!model) return undefined;
-    const result = await withTimeout(registry.getApiKeyAndHeaders(model), 15_000);
+    const result = await withTimeout(
+      registry.getApiKeyAndHeaders(model),
+      AUTH_RESOLVE_TIMEOUT_MS,
+    );
     if (!result?.ok) return undefined;
     const authorization =
       result.headers?.Authorization ?? result.headers?.authorization ?? undefined;
@@ -104,8 +135,11 @@ export async function resolveCodexToken(ctx: ExtensionContext): Promise<Resolved
   const refreshed = await bearerFromRegistry(ctx, "openai-codex");
   if (refreshed) return { token: refreshed, source: "pi runtime auth" };
 
-  if (entry?.access) {
-    return { token: entry.access, source: "~/.pi/agent/auth.json (possibly expired)" };
+  // A token that is already expired only creates a predictable 401 and masks
+  // the real refresh failure. Keep a still-valid near-expiry token as a final
+  // fallback, but never send one whose recorded expiry has passed.
+  if (entry?.access && (entry.expires === undefined || entry.expires > now)) {
+    return { token: entry.access, source: "~/.pi/agent/auth.json (expires soon)" };
   }
   return undefined;
 }

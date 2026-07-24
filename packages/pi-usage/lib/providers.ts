@@ -18,7 +18,9 @@ const COPILOT_HEADERS: Record<string, string> = {
   "X-GitHub-Api-Version": "2025-04-01",
 };
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_RETRY_COUNT = 1;
+const RETRY_DELAY_MS = 300;
 const MAX_BODY_BYTES = 128 * 1024;
 
 /** One usage window/bucket, already normalized for display. */
@@ -49,6 +51,7 @@ export async function queryCodexUsage(
   token: string,
   signal?: AbortSignal,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  retryCount = DEFAULT_RETRY_COUNT,
 ): Promise<ProviderReport> {
   const data = await fetchProviderJson(
     CODEX_USAGE_URL,
@@ -56,6 +59,7 @@ export async function queryCodexUsage(
     { "User-Agent": "pi-usage" },
     signal,
     timeoutMs,
+    retryCount,
     token,
   );
 
@@ -121,6 +125,7 @@ export async function queryCopilotUsage(
   token: string,
   signal?: AbortSignal,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  retryCount = DEFAULT_RETRY_COUNT,
 ): Promise<ProviderReport> {
   const data = await fetchProviderJson(
     COPILOT_USAGE_URL,
@@ -128,6 +133,7 @@ export async function queryCopilotUsage(
     { ...COPILOT_HEADERS, "User-Agent": "GitHubCopilotChat/0.30.0" },
     signal,
     timeoutMs,
+    retryCount,
     token,
   );
 
@@ -168,7 +174,48 @@ export async function queryCopilotUsage(
 
 // --- fetch helpers ----------------------------------------------------------
 
+class ProviderQueryError extends Error {
+  readonly retryable: boolean;
+  readonly status: number | undefined;
+
+  constructor(message: string, retryable: boolean, status?: number) {
+    super(message);
+    this.name = "ProviderQueryError";
+    this.retryable = retryable;
+    this.status = status;
+  }
+}
+
 async function fetchProviderJson(
+  url: string,
+  token: string,
+  extraHeaders: Record<string, string>,
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+  retryCount: number,
+  secret: string,
+): Promise<Record<string, unknown>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    try {
+      return await fetchProviderJsonOnce(url, token, extraHeaders, signal, timeoutMs, secret);
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt >= retryCount ||
+        signal?.aborted ||
+        !(error instanceof ProviderQueryError) ||
+        !error.retryable
+      ) {
+        throw error;
+      }
+      await abortableDelay(RETRY_DELAY_MS, signal);
+    }
+  }
+  throw lastError;
+}
+
+async function fetchProviderJsonOnce(
   url: string,
   token: string,
   extraHeaders: Record<string, string>,
@@ -176,12 +223,11 @@ async function fetchProviderJson(
   timeoutMs: number,
   secret: string,
 ): Promise<Record<string, unknown>> {
+  if (signal?.aborted) throw abortError();
+
   const controller = new AbortController();
   const onAbort = () => controller.abort();
-  if (signal) {
-    if (signal.aborted) controller.abort();
-    else signal.addEventListener("abort", onAbort, { once: true });
-  }
+  signal?.addEventListener("abort", onAbort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
@@ -190,28 +236,61 @@ async function fetchProviderJson(
     });
     const text = redact(await readBounded(response), secret);
     if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}${text ? `: ${truncate(text, 200)}` : ""}`);
+      throw new ProviderQueryError(
+        `${response.status} ${response.statusText}${text ? `: ${truncate(text, 200)}` : ""}`,
+        isRetryableStatus(response.status),
+        response.status,
+      );
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(text) as unknown;
     } catch {
-      throw new Error("provider returned invalid JSON");
+      throw new ProviderQueryError("provider returned invalid JSON", false);
     }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("provider response was not an object");
+      throw new ProviderQueryError("provider response was not an object", false);
     }
     return parsed as Record<string, unknown>;
   } catch (error) {
-    if (signal?.aborted) throw new Error("usage query aborted");
+    if (signal?.aborted) throw abortError();
+    if (error instanceof ProviderQueryError) throw error;
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`timed out after ${Math.round(timeoutMs / 1000)}s`);
+      throw new ProviderQueryError(`timed out after ${Math.round(timeoutMs / 1000)}s`, true);
     }
-    throw error instanceof Error ? new Error(redact(error.message, secret)) : error;
+    const message = error instanceof Error ? redact(error.message, secret) : String(error);
+    throw new ProviderQueryError(message, true);
   } finally {
     clearTimeout(timer);
-    if (signal) signal.removeEventListener("abort", onAbort);
+    signal?.removeEventListener("abort", onAbort);
   }
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function abortError(): Error {
+  const error = new Error("usage query aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+async function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw abortError();
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      cleanup();
+      reject(abortError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function readBounded(response: Response): Promise<string> {
