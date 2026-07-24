@@ -14,10 +14,11 @@
 // Codex uses the ChatGPT OAuth access token; Copilot uses the GitHub OAuth token.
 // Inspired by @narumitw/pi-usage, trimmed to just Codex and Copilot.
 
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
+import {
+  BorderedLoader,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { resolveCodexToken, resolveCopilotToken, type ResolvedToken } from "./lib/auth";
 import { formatReports, formatStatusline, type ProviderState } from "./lib/format";
@@ -154,6 +155,40 @@ export default function usageExtension(pi: ExtensionAPI): void {
     }
   };
 
+  // Run an async query behind a bordered "loading" overlay in the TUI so /usage
+  // never appears frozen while the endpoints are being fetched. Esc cancels.
+  // Returns undefined when the user cancels; rethrows genuine query errors.
+  const runWithLoader = async <T>(
+    ctx: ExtensionCommandContext,
+    label: string,
+    parentSignal: AbortSignal,
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T | undefined> => {
+    if (ctx.mode !== "tui") return operation(parentSignal);
+    type LoaderResult = { ok: true; value: T } | { ok: false; error: unknown };
+    const result = await ctx.ui.custom<LoaderResult | null>((tui, theme, _keybindings, done) => {
+      const loader = new BorderedLoader(tui, theme, label, { cancellable: true });
+      let finished = false;
+      const finish = (value: LoaderResult | null) => {
+        if (finished) return;
+        finished = true;
+        done(value);
+      };
+      loader.onAbort = () => finish(null);
+      const signal = AbortSignal.any([parentSignal, loader.signal]);
+      void operation(signal)
+        .then((value) => finish({ ok: true, value }))
+        .catch((error) => {
+          if (isAbortError(error)) finish(null);
+          else finish({ ok: false, error });
+        });
+      return loader;
+    });
+    if (!result) return undefined;
+    if (!result.ok) throw result.error;
+    return result.value;
+  };
+
   const showMenu = async (ctx: ExtensionCommandContext) => {
     if (!ctx.hasUI) {
       const states = await collectStates(ctx, false);
@@ -162,7 +197,10 @@ export default function usageExtension(pi: ExtensionAPI): void {
     }
     const controller = new AbortController();
     try {
-      let states = await collectStates(ctx, false, controller.signal);
+      let states = await runWithLoader(ctx, "Checking usage…", controller.signal, (signal) =>
+        collectStates(ctx, false, signal),
+      );
+      if (!states) return;
       publishActiveFrom(ctx, states);
       while (!controller.signal.aborted) {
         const action = await ctx.ui.select(formatReports(states), [REFRESH, CLOSE], {
@@ -170,8 +208,17 @@ export default function usageExtension(pi: ExtensionAPI): void {
         });
         if (!action || action === CLOSE) return;
         if (action === REFRESH) {
-          states = await collectStates(ctx, true, controller.signal);
-          publishActiveFrom(ctx, states);
+          const refreshed = await runWithLoader(
+            ctx,
+            "Refreshing usage…",
+            controller.signal,
+            (signal) => collectStates(ctx, true, signal),
+          );
+          // Cancelled refresh keeps the previously shown data.
+          if (refreshed) {
+            states = refreshed;
+            publishActiveFrom(ctx, states);
+          }
         }
       }
     } finally {
@@ -230,4 +277,8 @@ function compactSummary(states: ProviderState[]): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }

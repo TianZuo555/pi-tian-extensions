@@ -19,8 +19,10 @@ GitHub Copilot · Business
 
 ## Commands
 
-- `/usage` — open the usage menu. Pick **Refresh** to re-query, **Close** to
-  dismiss. In non-interactive modes it prints a one-line summary instead.
+- `/usage` — open the usage menu. A cancellable loading spinner is shown while
+  the provider endpoints are queried (press `Esc` to cancel). Pick **Refresh**
+  to re-query, **Close** to dismiss. In non-interactive modes it prints a
+  one-line summary instead.
 
 ## Statusline
 
